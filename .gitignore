@@ -1,0 +1,45 @@
+# .gitignore
+
+# Python Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+.venv/
+venv/
+env/
+*env/
+
+# Distribution & Packaging
+build/
+dist/
+*.egg-info/
+wheels/
+*.whl
+
+# Testing & Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE & Editor Config
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# OS-specific Files
+.DS_Store          # macOS
+Thumbs.db          # Windows
+._* # macOS resource forks
+
+# Logs & Secrets
+*.log
+*.log.*
+*.env

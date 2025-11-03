@@ -1,0 +1,49 @@
+# .github/workflows/python-test.yml
+
+# 1. Nome del Workflow (che apparirà su GitHub)
+name: Python CI (Test & Lint)
+
+# 2. Quando deve partire?
+on:
+  # Esegui su ogni 'push' al branch 'main'
+  push:
+    branches: [ "main" ]
+  # Esegui anche su ogni 'pull request' fatta verso 'main'
+  pull_request:
+    branches: [ "main" ]
+
+# 3. Cosa deve fare?
+jobs:
+  build:
+    # 4. Su che macchina deve girare? (Ubuntu è lo standard)
+    runs-on: ubuntu-latest
+
+    # 5. (Opzionale ma professionale)
+    # Esegui i test su più versioni di Python
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.10", "3.12"]
+
+    # 6. Sequenza di Passaggi
+    steps:
+      # Passaggio 1: Scarica il tuo codice sul server
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Passaggio 2: Installa la versione di Python (dal matrix)
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Passaggio 3: Installa le dipendenze
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Installa il progetto e le dipendenze di [dev] (che includono pytest)
+          pip install -e ".[dev]"
+
+      # Passaggio 4: Esegui i test!
+      - name: Run Pytest
+        run: |
+          pytest

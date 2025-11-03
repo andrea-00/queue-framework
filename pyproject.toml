@@ -1,0 +1,60 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "queue-framework"
+version = "0.1.0"
+description = "A lightweight, zero-dependency Discrete Event Simulation (DES) queueing model framework."
+readme = "README.md"
+requires-python = ">=3.8"
+
+authors = [
+  { name="Andrea Di Felice", email="andrealav2901@gmail.com" },
+]
+
+license = { text = "MIT" }
+
+dependencies = [
+    # Empty for now; the framework has no external dependencies
+]
+
+
+[project.urls]
+# Utile per un progetto Git
+Homepage = "https://github.com/andrea-00/queue-framework"
+Repository = "https://github.com/andrea-00/queue-framework"
+
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov", # Per la code coverage
+]
+examples = [
+    "jupyter",
+    "matplotlib",
+    "seaborn",
+]
+analysis = [
+    "matplotlib",
+    "seaborn",
+    "pandas",
+    "numpy"
+]
+
+
+[tool.setuptools]
+# --- Rilevamento Automatico dei Pacchetti ---
+# Questo è FONDAMENTALE per la nostra struttura 'src/'.
+# Dice a setuptools: "Trova tutti i pacchetti dentro la cartella 'src'".
+# In questo modo, rileverà 'src/queue_framework' e lo installerà
+# come pacchetto importabile 'queue_framework'.
+package-dir = {"" = "src"}
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
