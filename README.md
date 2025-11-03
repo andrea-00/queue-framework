@@ -49,7 +49,7 @@ pip install git+https://github.com/andrea-00/queue-framework.git@v0.1.0
 
 To install the core library plus the optional analysis dependencies (`numpy`, `pandas`, `matplotlib`), use the `[analysis]` extra:
 ```bash
-pip install git+https://github.com/andrea-00/queue-framework.git@v0.1.0#egg=queue_framework[analysis]
+pip install "git+https://github.com/andrea-00/queue-framework.git@v0.1.0#egg=queue_framework[analysis]"
 ```
 
 #### 3. For Local Development
