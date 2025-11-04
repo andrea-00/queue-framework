@@ -32,22 +32,12 @@ try:
         plot_batch_means_over_time
     )
 
-    from .transient import (
-        calculate_transient_data,
-        find_transient_end
-    )
-
     # Define the public API of this sub-package
     __all__ = [
         "plot_wait_time_histogram",
         "plot_system_time_histogram",
         "plot_queue_length_over_time",
         "plot_server_utilization_over_time",
-        "plot_transient_analysis",
-        "plot_batch_means_over_time",
-
-        "calculate_transient_data",
-        "find_transient_end"
     ]
 
 except ImportError:

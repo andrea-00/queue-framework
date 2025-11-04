@@ -27,9 +27,8 @@ Your simulator handles the "when" (the event loop); this framework handles the "
 * **Rich KPI Tracking:** The `Measure` class automatically tracks 20+ key statistics, including:
     * Observation-based stats (wait times, service times) with confidence intervals.
     * Time-weighted stats (queue length, server utilization).
-* **Powerful Analysis Package (Optional):**
-    * **Advanced Plotting:** Includes functions to plot KPI evolution, moving averages, and Welch plots.
-    * **Automatic Transient Detection:** Includes functions to automatically find the end of the warm-up period ($k^*$) using robust heuristics.
+* **Helpful Plotting Package (Optional):**
+    * Includes functions (in the `analysis` package) to plot KPI distributions (histograms) and time-series data (step plots) using `matplotlib`.
 * **Fully Tested:** High test coverage using `pytest`.
 
 ---
@@ -42,14 +41,14 @@ This is a Git-based package.
 
 To install the core, zero-dependency library:
 ```bash
-pip install git+https://github.com/andrea-00/queue-framework.git@v0.1.0
+pip install git+https://github.com/andrea-00/queue-framework.git@v1.1.0
 ```
 
 #### 2. Full Installation (with Analysis)
 
-To install the core library plus the optional analysis dependencies (`numpy`, `pandas`, `matplotlib`), use the `[analysis]` extra:
+To install the core library plus the optional analysis dependencies (`seaborn`, `matplotlib`), use the `[analysis]` extra:
 ```bash
-pip install "git+https://github.com/andrea-00/queue-framework.git@v0.1.0#egg=queue_framework[analysis]"
+pip install "git+https://github.com/andrea-00/queue-framework.git@v1.1.0#egg=queue_framework[analysis]"
 ```
 
 #### 3. For Local Development
@@ -132,56 +131,36 @@ pprint.pprint(kpis['wait_time'])
 
 ---
 
-## Advanced Analysis: Plotting & Transient Detection
-The `analysis` package lets you automatically process and visualize the results from a `Measure` object.
+## Plotting Example (Optional)
+The optional `[analysis]` package provides functions to visualize KPI data from the Measure object.
 
 See `examples/simulation_demo.ipynb` for the full, runnable code.
 ```python
 import matplotlib.pyplot as plt
-from queue_framework.analysis import (
-    calculate_transient_data, 
-    find_transient_end,
-    plot_batch_means_over_time,
-    plot_transient_analysis
-)
+from queue_framework.analysis import plot_wait_time_histogram, plot_queue_length_over_time
 
-# --- 1. Run a Long Simulation ---
-# (Assume 'long_run_model' is your model after a 50,000-user run)
-measure_obj = long_run_model.kpi_tracker
-kpi_to_analyze = "wait_times"
+# --- 1. Run a Simulation ---
+# (Assume 'model' is your FIFOQueueModel after a long run)
+measure_obj = model.kpi_tracker
+kpis = model.get_final_kpis(simulation_end_time=sim.clock)
 
-# --- 2. Calculate Transient Data (Once) ---
-# This does the heavy lifting (batching, xk_bar, Rk, etc.)
-transient_data = calculate_transient_data(
-    measure_obj, 
-    kpi_key=kpi_to_analyze,
-    num_batches=100
-)
 
-# --- 3. Find k* Automatically ---
-# Find the batch index where |Rk| stays < 5% for 5 batches
-k_star = find_transient_end(transient_data, threshold=0.05, patience=5)
+# --- 2. Create a Figure ---
+fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(16, 6))
 
-print(f"Transient phase auto-detected to end at batch: k* = {k_star}")
-
-# --- 4. Plot a Combined Analysis Figure ---
-fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(14, 16))
-
-# Plot 1: Moving Average (to visually confirm k*)
-plot_batch_means_over_time(
-    transient_data=transient_data,
-    t_star_k=k_star,
-    moving_avg_window=20,
+# Plot 1: Wait Time Distribution
+plot_wait_time_histogram(
+    measure=measure_obj,
     ax=axes[0]
 )
 
-# Plot 2: Relative Error (to quantify error)
-plot_transient_analysis(
-    transient_data=transient_data, 
-    t_star_k=k_star,
+# Plot 2: Queue Length Over Time
+plot_queue_length_over_time(
+    measure=measure_obj, 
     ax=axes[1]
 )
 
+plt.tight_layout()
 plt.show()
 ```
 This will produce a professional, two-panel chart showing the KPI evolution and the convergence analysis.
@@ -202,7 +181,7 @@ pytest
 
 ## Where Users Can Get Help
 
-* **Full Demo:** For a complete, runnable example, please see the `examples/tsp_demo.ipynb` notebook. It shows the full workflow, including data loading and plotting.
+* **Full Demo:** For a complete, runnable example, please see the `examples/simulation_demo.ipynb` notebook. It shows the full workflow, including data loading and plotting.
 * **Bug Reports & Feature Requests:** If you find a bug or have an idea for a new strategy, please **[open an issue](https://github.com/andrea-00/queue-framework/issues)** on this repository.
 
 ## Who Maintains and Contributes
