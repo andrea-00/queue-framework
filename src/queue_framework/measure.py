@@ -19,6 +19,18 @@ from typing import List, Tuple, Dict, Any, Optional
 # Set up the module-level logger
 log = logging.getLogger(__name__)
 
+from enum import Enum  # [NUOVA AGGIUNTA]
+
+# [NUOVA AGGIUNTA]
+class BinningInterval(Enum):
+    """Definisce le ampiezze fisse per il binning temporale."""
+    # Esempi di unità, puoi espandere o modificare
+    MINUTE = 1.0
+    HOUR = 60.0
+    TURN = HOUR * 6  # assuming a 'turn' is 60 minutes
+    DAY = HOUR * 24.0
+    WEEK = DAY * 7.0
+
 
 class Measure:
     """
@@ -54,7 +66,9 @@ class Measure:
         last_update_time (float): The timestamp of the last logged event.
     """
 
-    def __init__(self, capacity: int, start_time: float = 0.0):
+    def __init__(self, capacity: int, start_time: float = 0.0, 
+                 # [NUOVA AGGIUNTA] Parametri per il binning
+                 bin_interval: Optional[BinningInterval] = BinningInterval.HOUR):
         """
         Initializes the KPI tracker.
 
@@ -63,6 +77,8 @@ class Measure:
                             Must be > 0 to calculate utilization.
             start_time (float, optional): The simulation time at which
                                           tracking begins. Defaults to 0.0.
+            bin_interval (Optional[BinningInterval]): If provided, enables
+                time binning with the specified interval.
         """
         if capacity <= 0:
             log.warning(f"Measure initialized with capacity <= 0 ({capacity}). "
@@ -87,14 +103,160 @@ class Measure:
         self.total_arrivals: int = 0
         self.total_waited: int = 0
         self.total_served: int = 0
+
+        # === [NUOVA AGGIUNTA] Sezione per il Binning ===
+        self.bin_size: Optional[float] = bin_interval.value if bin_interval else None
+        self.current_bin_index: int = 0
         
+        # Strutture per i dati finali (una lista di medie per bin)
+        self.binned_wait_time: List[float] = []
+        self.binned_system_time: List[float] = []
+        self.binned_queue_length: List[float] = []
+        self.binned_server_utilization: List[float] = []
+        
+        if self.bin_size is not None:
+            # Dati temporanei per il bin corrente
+            self._temp_bin_wait_times: List[float] = []
+            self._temp_bin_system_times: List[float] = []
+            
+            # Log per il TWA del bin corrente
+            # (Timestamp, Value) - l'anchor time sarà bin_start
+            self._temp_bin_queue_log: List[Tuple[float, int]] = []
+            self._temp_bin_server_log: List[Tuple[float, int]] = []
+            
+            # Memoria dello stato all'inizio del bin corrente
+            self._last_queue_state: int = 0
+            self._last_server_state: int = 0
+            
+            log.debug(f"Measure Bins initialized (Size={self.bin_size})")
+        # === FINE NUOVA AGGIUNTA ===
+
         log.debug(f"Measure tracker initialized (Capacity={capacity}, "
                   f"StartTime={start_time})")
+        
+    
+    # === [NUOVA AGGIUNTA] Metodi Helper per il Binning ===
+
+    def _check_and_update_bins(self, current_time: float):
+        """
+        Controlla se l'evento corrente si trova in un nuovo bin.
+        Se sì, finalizza tutti i bin completati fino a questo punto.
+        """
+        if self.bin_size is None:
+            return
+
+        # Calcola in quale bin dovrebbe trovarsi questo evento
+        target_bin_index = math.floor(current_time / self.bin_size)
+
+        # Se siamo ancora nello stesso bin o in uno precedente (?), non fare nulla
+        if target_bin_index <= self.current_bin_index:
+            return
+
+        # Dobbiamo finalizzare tutti i bin da self.current_bin_index
+        # fino a (target_bin_index - 1).
+        while self.current_bin_index < target_bin_index:
+            bin_start = self.current_bin_index * self.bin_size
+            bin_end = (self.current_bin_index + 1) * self.bin_size
+            self._finalize_bin(bin_start, bin_end)
+            
+            self.current_bin_index += 1
+
+    def _finalize_bin(self, bin_start: float, bin_end: float):
+        """
+        Calcola le medie per il bin completato e le salva.
+        Pulisce le strutture dati temporanee.
+        """
+        
+        # 1. Tally-based KPIs (Wait Time)
+        if not self._temp_bin_wait_times:
+            self.binned_wait_time.append(0.0)
+        else:
+            mean_wait = sum(self._temp_bin_wait_times) / len(self._temp_bin_wait_times)
+            self.binned_wait_time.append(mean_wait)
+            self._temp_bin_wait_times.clear()
+
+        # 2. Tally-based KPIs (System Time)
+        if not self._temp_bin_system_times:
+            self.binned_system_time.append(0.0)
+        else:
+            mean_sys_time = sum(self._temp_bin_system_times) / len(self._temp_bin_system_times)
+            self.binned_system_time.append(mean_sys_time)
+            self._temp_bin_system_times.clear()
+
+        # 3. Time-Persistent KPIs (Queue Length)
+        avg_q_len = self._calculate_binned_tw_avg(
+            log_data=self._temp_bin_queue_log,
+            initial_state=self._last_queue_state,
+            bin_start=bin_start,
+            bin_end=bin_end
+        )
+        self.binned_queue_length.append(avg_q_len)
+        if self._temp_bin_queue_log:
+            self._last_queue_state = self._temp_bin_queue_log[-1][1]
+        self._temp_bin_queue_log.clear()
+
+        # 4. Time-Persistent KPIs (Server Utilization)
+        avg_busy = self._calculate_binned_tw_avg(
+            log_data=self._temp_bin_server_log,
+            initial_state=self._last_server_state,
+            bin_start=bin_start,
+            bin_end=bin_end
+        )
+        avg_util = (avg_busy / self.capacity) if self.capacity > 0 else 0.0
+        self.binned_server_utilization.append(avg_util)
+        if self._temp_bin_server_log:
+            self._last_server_state = self._temp_bin_server_log[-1][1]
+        self._temp_bin_server_log.clear()
+
+    def _calculate_binned_tw_avg(
+        self,
+        log_data: List[Tuple[float, int]],
+        initial_state: int,
+        bin_start: float,
+        bin_end: float
+    ) -> float:
+        """
+        Calcola la media ponderata nel tempo per un singolo bin.
+        """
+        total_duration = bin_end - bin_start
+        if total_duration <= 0:
+            return float(initial_state)
+
+        integral = 0.0
+        last_time = bin_start
+        last_value = initial_state
+
+        for time, value in log_data:
+            # L'evento è fuori dai limiti, strano, ma gestiamolo
+            if time < bin_start:
+                continue
+            
+            # Fissa il tempo dell'evento ai limiti del bin
+            event_time = min(time, bin_end)
+            
+            duration = event_time - last_time
+            integral += last_value * duration
+            
+            last_time, last_value = event_time, value
+            
+            # Se l'evento era oltre la fine del bin, abbiamo finito
+            if time >= bin_end:
+                break
+        
+        # Aggiungi l'ultimo intervallo di tempo fino alla fine del bin
+        if last_time < bin_end:
+            final_duration = bin_end - last_time
+            integral += last_value * final_duration
+            
+        return integral / total_duration
+
+    # === FINE NUOVA AGGIUNTA ===
 
 
 
     def log_arrival(self, time: float):
         """Logs the arrival of a new entity."""
+        self._check_and_update_bins(time)  # [NUOVA AGGIUNTA]
         self.total_arrivals += 1
         self._update_last_time(time)
         log.debug(f"T={time:.2f}: Entity arrival logged. "
@@ -102,6 +264,11 @@ class Measure:
 
     def log_queue_entry(self, time: float, current_queue_length: int):
         """Logs an entity entering the queue."""
+        self._check_and_update_bins(time)  # [NUOVA AGGIUNTA]
+        # [NUOVA AGGIUNTA] Log per il binning
+        if self.bin_size is not None:
+            self._temp_bin_queue_log.append((time, current_queue_length))
+
         self.total_waited += 1
         self.queue_length_log.append((time, current_queue_length))
         self._update_last_time(time)
@@ -112,6 +279,14 @@ class Measure:
                           current_queue_length: int,
                           current_busy_servers: int):
         """Logs an entity starting service (after 0 or more wait)."""
+        self._check_and_update_bins(time)  # [NUOVA AGGIUNTA]
+        
+        # [NUOVA AGGIUNTA] Log per il binning
+        if self.bin_size is not None:
+            self._temp_bin_wait_times.append(wait_time)
+            self._temp_bin_queue_log.append((time, current_queue_length))
+            self._temp_bin_server_log.append((time, current_busy_servers))
+
         self.wait_times.append(wait_time)
         
         # Log state changes
@@ -125,6 +300,13 @@ class Measure:
     def log_service_end(self, time: float, service_time: float, 
                         system_time: float, current_busy_servers: int):
         """Logs an entity finishing service."""
+        self._check_and_update_bins(time)  # [NUOVA AGGIUNTA]
+        
+        # [NUOVA AGGIUNTA] Log per il binning
+        if self.bin_size is not None:
+            self._temp_bin_system_times.append(system_time)
+            self._temp_bin_server_log.append((time, current_busy_servers))
+
         self.service_times.append(service_time)
         self.system_times.append(system_time)
         self.total_served += 1
@@ -303,4 +485,53 @@ class Measure:
                 "time_weighted_average_busy_servers": avg_servers_busy,
                 "average_utilization_percentage": avg_utilization
             }
+        }
+
+    # === [NUOVA AGGIUNTA] Metodo Getter per i Dati Binned ===
+    
+    def get_binned_kpis(self, simulation_end_time: float) -> Dict[str, List[float]]:
+        """
+        Finalizza e restituisce le serie temporali dei dati raggruppati (binned).
+
+        Questo metodo DEVE essere chiamato alla fine della simulazione
+        per processare l'ultimo bin parziale.
+
+        Args:
+            simulation_end_time (float): L'ora di fine della simulazione.
+
+        Returns:
+            Dict[str, List[float]]: Un dizionario dove ogni chiave è una KPI
+                                    e ogni valore è una lista di medie
+                                    (una per ogni bin).
+        """
+        if self.bin_size is None:
+            log.warning("Binning non abilitato. Chiamata a get_binned_kpis() "
+                        "restituirà liste vuote.")
+            return {
+                "binned_wait_time": [],
+                "binned_system_time": [],
+                "binned_queue_length": [],
+                "binned_server_utilization": []
+            }
+            
+        log.debug(f"Finalizing bins up to time {simulation_end_time}...")
+        
+        # 1. Finalizza tutti i bin completi che potrebbero essere stati saltati
+        self._check_and_update_bins(simulation_end_time)
+        
+        # 2. Finalizza l'ultimo bin, che potrebbe essere parziale
+        last_bin_start = self.current_bin_index * self.bin_size
+        
+        # Assicurati di non processare un bin vuoto se la sim finisce
+        # esattamente sul confine di un bin
+        if simulation_end_time > last_bin_start:
+            log.debug(f"Finalizing partial bin {self.current_bin_index} "
+                      f"from {last_bin_start} to {simulation_end_time}")
+            self._finalize_bin(last_bin_start, simulation_end_time)
+
+        return {
+            "binned_wait_time": self.binned_wait_time,
+            "binned_system_time": self.binned_system_time,
+            "binned_queue_length": self.binned_queue_length,
+            "binned_server_utilization": self.binned_server_utilization
         }
